@@ -213,7 +213,7 @@ class CatalogManager:
         try:
             self.embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/text-embedding-004",
-                google_api_key=os.getenv("GEMINI_API_KEY"),
+                api_key=os.getenv("GEMINI_API_KEY"),
             )
         except Exception as exc:
             logger.error("Failed to initialize embeddings: %s", exc, exc_info=True)

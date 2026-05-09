@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import chromadb
 import requests
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -27,7 +28,6 @@ class CatalogManager:
         self.cache_path: Path = Path(
             os.getenv("CATALOG_CACHE_PATH", "./catalog_data/shl_catalog.json")
         )
-        self.persist_dir: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
         self.collection_name: str = "shl_assessments"
         self.startup_complete: bool = False
         self.catalog_items: list[dict[str, Any]] = []
@@ -221,18 +221,14 @@ class CatalogManager:
                 raise
 
     def _init_chroma(self, best_effort: bool = False) -> None:
-        """Initialize persistent Chroma collection and index data if empty."""
-        Path(self.persist_dir).mkdir(parents=True, exist_ok=True)
+        """Initialize in-memory Chroma collection and index catalog data."""
         try:
+            client = chromadb.EphemeralClient()
             self.chroma = Chroma(
+                client=client,
                 collection_name=self.collection_name,
                 embedding_function=self.embeddings,
-                persist_directory=self.persist_dir,
             )
-            current_count = self._safe_count_collection()
-            if current_count > 0:
-                logger.info("Chroma collection already populated (%s records).", current_count)
-                return
             self._index_catalog()
         except Exception as exc:
             logger.error("Failed to initialize Chroma: %s", exc, exc_info=True)

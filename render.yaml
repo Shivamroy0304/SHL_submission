@@ -7,7 +7,3 @@ services:
     envVars:
       - key: GEMINI_API_KEY
         sync: false
-    disk:
-      name: chroma-storage
-      mountPath: /app/chroma_db
-      sizeGB: 1

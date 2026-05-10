@@ -39,7 +39,14 @@ class CatalogManager:
         """Load catalog, bootstrap embeddings/vector DB, and mark startup complete."""
         try:
             self._ensure_cache_exists()
-            raw_data = self._load_cached_catalog()
+            try:
+                raw_data = self._load_cached_catalog()
+            except (json.JSONDecodeError, Exception):
+                logger.info("Cache corrupted - deleting and re-downloading...")
+                if self.cache_path.exists():
+                    self.cache_path.unlink()
+                self._ensure_cache_exists()
+                raw_data = self._load_cached_catalog()
             self.catalog_items = self._parse_individual_assessments(raw_data)
             self._by_name = {item["name"].lower(): item for item in self.catalog_items}
             self._init_embeddings()
@@ -66,7 +73,7 @@ class CatalogManager:
             response = requests.get(self.catalog_url, timeout=40)
             response.raise_for_status()
             content = response.text
-            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+            content = re.sub(r'[\x00-\x1f\x7f]', '', content)
             json.loads(content)
             self.cache_path.write_text(content, encoding="utf-8")
         except Exception as exc:
@@ -80,7 +87,7 @@ class CatalogManager:
         try:
             content = self.cache_path.read_text(encoding="utf-8", errors="replace")
             # Remove invalid JSON control characters (keep \t \n \r which are valid)
-            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+            content = re.sub(r'[\x00-\x1f\x7f]', '', content)
             return json.loads(content)
         except json.JSONDecodeError as exc:
             logger.error("JSON parse failed, deleting cache to force re-download: %s", exc)

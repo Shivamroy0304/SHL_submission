@@ -11,6 +11,7 @@ from langchain.agents import AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
 from langchain.schema import BaseRetriever, Document
 from langchain.callbacks.manager import CallbackManagerForRetrieverRun
+from pydantic import Field
 
 from catalog import CatalogManager
 from chains import (
@@ -29,13 +30,17 @@ logger = logging.getLogger(__name__)
 
 
 class CatalogRetriever(BaseRetriever):
-    """Custom retriever that calls catalog.search() for vector similarity."""
-    catalog: Any
+    catalog_manager: Any = Field(...)
     k: int = 20
     
-    def _get_relevant_documents(self, query: str, 
-        *, run_manager: CallbackManagerForRetrieverRun) -> list[Document]:
-        results = self.catalog.search(query, n_results=self.k)
+    class Config:
+        arbitrary_types_allowed = True
+    
+    def _get_relevant_documents(
+        self, query: str, 
+        *, run_manager: CallbackManagerForRetrieverRun
+    ) -> list[Document]:
+        results = self.catalog_manager.search(query, n_results=self.k)
         return [Document(
             page_content=r.get("description", r.get("name", "")),
             metadata=r
@@ -49,7 +54,7 @@ class SHLAgent:
         """Build all reusable chains, retriever, and tools once at startup."""
         self.catalog = catalog_manager
         self.llm = build_llm()
-        self.retriever = CatalogRetriever(catalog=catalog_manager, k=20)
+        self.retriever = CatalogRetriever(catalog_manager=catalog_manager, k=20)
         self.intent_chain = build_intent_chain(self.llm)
         self.clarify_chain = build_clarify_chain(self.llm)
         self.recommend_chain = (

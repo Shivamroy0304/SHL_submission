@@ -208,9 +208,18 @@ class SHLAgent:
             )
         except Exception as exc:
             logger.error("Recommend chain failed: %s", exc, exc_info=True)
+            fallback_recommendations = self._fallback_recommendations_from_catalog(current_input)
+            if fallback_recommendations:
+                return ChatResponse(
+                    reply=(
+                        "I hit a model quota limit, so I used the catalog directly to build a shortlist."
+                    ),
+                    recommendations=fallback_recommendations,
+                    end_of_conversation=False,
+                )
             return ChatResponse(
                 reply="I had trouble generating recommendations just now. Please retry with the role and core requirements.",
-                recommendations=[],
+                recommendations=fallback_recommendations,
                 end_of_conversation=False,
             )
 
@@ -266,7 +275,12 @@ class SHLAgent:
             reply = parsed.get("reply", compare_result)
         except Exception as exc:
             logger.error("Compare chain failed: %s", exc, exc_info=True)
-            reply = "I can compare those options using catalog details if you share the exact assessment names."
+            reply = (
+                "I hit a model quota limit while comparing assessments. "
+                "Please share the exact names again and I will use the catalog fallback."
+                if self._is_quota_error(exc)
+                else "I can compare those options using catalog details if you share the exact assessment names."
+            )
 
         prior_recs = self._extract_prior_recommendations(messages)
         show_recs = self._both_items_staying(current_input, prior_recs)
@@ -482,6 +496,11 @@ class SHLAgent:
         except Exception:
             logger.warning("JSON parse failed; returning empty dict.")
             return {}
+
+    def _is_quota_error(self, exc: Exception) -> bool:
+        """Detect Gemini quota/rate-limit failures so we can use local fallback logic."""
+        text = f"{type(exc).__name__}: {exc}".lower()
+        return any(marker in text for marker in ("resourceexhausted", "429", "quota", "rate limit"))
 
     def _is_rust_gap(self, user_input: str) -> bool:
         """Detect known catalog-gap request where direct recommendation should wait."""

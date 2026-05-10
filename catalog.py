@@ -1,11 +1,36 @@
 from __future__ import annotations
+import hashlib
 import json, logging, os, re, requests
 from pathlib import Path
 from typing import Any
 import chromadb
-from chromadb.utils import embedding_functions
 
 logger = logging.getLogger(__name__)
+
+
+class _LocalEmbeddingFunction:
+    """Small deterministic embedding function with no external downloads."""
+
+    def __init__(self, dimensions: int = 384):
+        self.dimensions = dimensions
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        return [self._embed_text(text) for text in input]
+
+    def _embed_text(self, text: str) -> list[float]:
+        vector = [0.0] * self.dimensions
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        if not tokens:
+            return vector
+        for token in tokens:
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            index = int.from_bytes(digest[:4], "big") % self.dimensions
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            vector[index] += sign
+        norm = sum(value * value for value in vector) ** 0.5
+        if norm:
+            vector = [value / norm for value in vector]
+        return vector
 
 class CatalogManager:
     def __init__(self):
@@ -55,11 +80,10 @@ class CatalogManager:
         return json.loads(content)
 
     def _init_chroma(self):
-        ef = embedding_functions.DefaultEmbeddingFunction()
         client = chromadb.EphemeralClient()
         self._collection = client.get_or_create_collection(
             name="shl_assessments",
-            embedding_function=ef
+            embedding_function=_LocalEmbeddingFunction()
         )
 
     def _index_catalog(self):

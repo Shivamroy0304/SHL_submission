@@ -238,7 +238,7 @@ class CatalogManager:
         try:
             api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004",
+                model="models/embedding-001",
                 google_api_key=api_key,
             )
         except Exception as exc:

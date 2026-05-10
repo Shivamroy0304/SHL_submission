@@ -11,7 +11,7 @@ from typing import Any
 import chromadb
 import requests
 from langchain_chroma import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class CatalogManager:
         self.startup_complete: bool = False
         self.catalog_items: list[dict[str, Any]] = []
         self.chroma: Chroma | None = None
-        self.embeddings: GoogleGenerativeAIEmbeddings | None = None
+        self.embeddings: HuggingFaceEmbeddings | None = None
         self._by_name: dict[str, dict[str, Any]] = {}
 
     def initialize(self) -> None:
@@ -234,13 +234,14 @@ class CatalogManager:
         return None
 
     def _init_embeddings(self, best_effort: bool = False) -> None:
-        """Initialize Google embedding model used by Chroma vector store."""
+        """Initialize local HuggingFace embedding model. No API key needed."""
         try:
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
-                google_api_key=api_key,
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True}
             )
+            logger.info("Embeddings initialized with all-MiniLM-L6-v2")
         except Exception as exc:
             logger.error("Failed to initialize embeddings: %s", exc, exc_info=True)
             if not best_effort:

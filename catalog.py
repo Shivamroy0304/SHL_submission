@@ -61,17 +61,35 @@ class CatalogManager:
             return
         logger.info("Catalog cache missing; downloading from source URL.")
         try:
+            import re
+
             response = requests.get(self.catalog_url, timeout=40)
             response.raise_for_status()
-            self.cache_path.write_text(response.text, encoding="utf-8")
+            content = response.text
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+            json.loads(content)
+            self.cache_path.write_text(content, encoding="utf-8")
         except Exception as exc:
             logger.error("Failed to download catalog: %s", exc, exc_info=True)
             raise
 
     def _load_cached_catalog(self) -> Any:
-        """Load cached catalog JSON from local disk."""
+        """Load cached catalog JSON, stripping invalid control characters."""
+        import re
+
         try:
-            return json.loads(self.cache_path.read_text(encoding="utf-8"))
+            content = self.cache_path.read_text(encoding="utf-8", errors="replace")
+            # Remove invalid JSON control characters (keep \t \n \r which are valid)
+            content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            logger.error("JSON parse failed, deleting cache to force re-download: %s", exc)
+            # Delete corrupted cache so it re-downloads fresh next startup
+            try:
+                self.cache_path.unlink()
+            except Exception:
+                pass
+            raise
         except Exception as exc:
             logger.error("Failed to read cached catalog: %s", exc, exc_info=True)
             raise
@@ -211,9 +229,10 @@ class CatalogManager:
     def _init_embeddings(self, best_effort: bool = False) -> None:
         """Initialize Google embedding model used by Chroma vector store."""
         try:
+            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             self.embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/text-embedding-004",
-                api_key=os.getenv("GEMINI_API_KEY"),
+                google_api_key=api_key,
             )
         except Exception as exc:
             logger.error("Failed to initialize embeddings: %s", exc, exc_info=True)

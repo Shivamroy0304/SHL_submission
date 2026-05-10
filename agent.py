@@ -76,8 +76,25 @@ class SHLAgent:
 
             conversation = self._conversation_text(messages)
             current_input = messages[-1].content
-            intent = self._classify_intent(conversation)
-            logger.info("Intent classified: %s", intent)
+            try:
+                intent = self.intent_chain.predict(conversation=conversation).strip().upper()
+                if intent not in (
+                    "CLARIFY",
+                    "RECOMMEND",
+                    "REFINE",
+                    "COMPARE",
+                    "LEGAL",
+                    "OFF_TOPIC",
+                    "INJECT",
+                    "END",
+                ):
+                    intent = self._keyword_intent(current_input)
+            except Exception as exc:
+                logger.error("Intent classification failed: %s", exc, exc_info=True)
+                intent = self._keyword_intent(current_input)
+            if not intent:
+                intent = self._keyword_intent(current_input)
+            logger.info(f"Intent classified: {intent}")
 
             if intent == "OFF_TOPIC":
                 response = self._handle_off_topic()
@@ -104,6 +121,48 @@ class SHLAgent:
                 recommendations=[],
                 end_of_conversation=False,
             )
+
+    def _keyword_intent(self, message: str) -> str:
+        """Simple keyword fallback when LLM classification fails."""
+        msg = message.lower()
+
+        if any(w in msg for w in ["salary", "legal", "law", "interview tips"]):
+            return "OFF_TOPIC"
+
+        if any(w in msg for w in ["difference between", "compare", "vs ", "versus"]):
+            return "COMPARE"
+
+        if any(w in msg for w in ["add ", "remove", "drop ", "include", "exclude", "also add"]):
+            return "REFINE"
+
+        if any(w in msg for w in ["perfect", "confirmed", "that works", "locking", "that's good", "good"]):
+            return "END"
+
+        role_keywords = [
+            "hiring",
+            "developer",
+            "engineer",
+            "manager",
+            "analyst",
+            "trainee",
+            "graduate",
+            "sales",
+            "contact centre",
+            "operator",
+            "admin",
+            "nurse",
+            "agent",
+            "jd",
+            "job description",
+            "assessment for",
+            "cognitive",
+            "personality",
+            "situational",
+        ]
+        if any(w in msg for w in role_keywords):
+            return "RECOMMEND"
+
+        return "CLARIFY"
 
     def _classify_intent(self, conversation: str) -> str:
         """Classify user intent safely via intent chain."""

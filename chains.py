@@ -21,7 +21,7 @@ def build_llm() -> ChatGoogleGenerativeAI:
     """Create shared Gemini 2.0 Flash chat model instance."""
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-pro",
         temperature=0.2,
         google_api_key=api_key,
         convert_system_message_to_human=True,

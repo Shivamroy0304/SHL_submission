@@ -10,8 +10,7 @@ from typing import Any
 
 import chromadb
 import requests
-from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from chromadb.utils import embedding_functions
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +30,10 @@ class CatalogManager:
         self.collection_name: str = "shl_assessments"
         self.startup_complete: bool = False
         self.catalog_items: list[dict[str, Any]] = []
-        self.chroma: Chroma | None = None
-        self.embeddings: HuggingFaceEmbeddings | None = None
         self._by_name: dict[str, dict[str, Any]] = {}
+        self._client: Any = None
+        self._collection: Any = None
+        self._ef: Any = None
 
     def initialize(self) -> None:
         """Load catalog, bootstrap embeddings/vector DB, and mark startup complete."""
@@ -41,23 +41,22 @@ class CatalogManager:
             self._ensure_cache_exists()
             try:
                 raw_data = self._load_cached_catalog()
-            except (json.JSONDecodeError, Exception):
+            except Exception:
                 logger.info("Cache corrupted - deleting and re-downloading...")
                 if self.cache_path.exists():
                     self.cache_path.unlink()
                 self._ensure_cache_exists()
                 raw_data = self._load_cached_catalog()
+            
             self.catalog_items = self._parse_individual_assessments(raw_data)
             self._by_name = {item["name"].lower(): item for item in self.catalog_items}
-            self._init_embeddings()
             self._init_chroma()
+            self._index_catalog()
             logger.info("Assessments loaded: %s", len(self.catalog_items))
         except Exception as exc:
             logger.error("Catalog initialization failed: %s", exc, exc_info=True)
             self.catalog_items = []
             self._by_name = {}
-            self._init_embeddings(best_effort=True)
-            self._init_chroma(best_effort=True)
         finally:
             self.startup_complete = True
 
@@ -86,12 +85,10 @@ class CatalogManager:
 
         try:
             content = self.cache_path.read_text(encoding="utf-8", errors="replace")
-            # Remove invalid JSON control characters (keep \t \n \r which are valid)
             content = re.sub(r'[\x00-\x1f\x7f]', '', content)
             return json.loads(content)
         except json.JSONDecodeError as exc:
             logger.error("JSON parse failed, deleting cache to force re-download: %s", exc)
-            # Delete corrupted cache so it re-downloads fresh next startup
             try:
                 self.cache_path.unlink()
             except Exception:
@@ -235,66 +232,38 @@ class CatalogManager:
 
     def _init_embeddings(self, best_effort: bool = False) -> None:
         """Initialize local HuggingFace embedding model. No API key needed."""
+        try:chroma(self) -> None:
+        """Initialize in-memory Chroma collection with default embeddings."""
         try:
-            self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True}
+            self._ef = embedding_functions.DefaultEmbeddingFunction()
+            self._client = chromadb.EphemeralClient()
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                embedding_function=self._ef
             )
-            logger.info("Embeddings initialized with all-MiniLM-L6-v2")
-        except Exception as exc:
-            logger.error("Failed to initialize embeddings: %s", exc, exc_info=True)
-            if not best_effort:
-                raise
-
-    def _init_chroma(self, best_effort: bool = False) -> None:
-        """Initialize in-memory Chroma collection and index catalog data."""
-        try:
-            client = chromadb.EphemeralClient()
-            self.chroma = Chroma(
-                client=client,
-                collection_name=self.collection_name,
-                embedding_function=self.embeddings,
-            )
-            self._index_catalog()
+            logger.info("Chroma initialized with DefaultEmbeddingFunction")
         except Exception as exc:
             logger.error("Failed to initialize Chroma: %s", exc, exc_info=True)
-            if not best_effort:
-                raise
-
-    def _safe_count_collection(self) -> int:
-        """Get collection document count safely, returning zero on failure."""
-        if self.chroma is None:
-            return 0
-        try:
-            collection = self.chroma._collection
-            return int(collection.count()) if collection else 0
-        except Exception as exc:
-            logger.error("Failed to count Chroma collection: %s", exc, exc_info=True)
-            return 0
+            raise
 
     def _index_catalog(self) -> None:
-        """Batch-index parsed catalog assessments into persistent Chroma."""
-        if self.chroma is None:
-            return
-        if not self.catalog_items:
+        """Batch-index parsed catalog assessments into Chroma."""
+        if not self._collection or not self.catalog_items:
             logger.info("No catalog items available for indexing.")
             return
 
         texts = [self._build_embedding_text(item) for item in self.catalog_items]
         metadatas = [self._build_metadata(item) for item in self.catalog_items]
-        ids = [f"assessment-{idx}" for idx, _ in enumerate(self.catalog_items)]
-        batch_size = 64
+        ids = [f"assessment-{i}" for i in range(len(self.catalog_items))]
+        batch_size = 50
 
         for start in range(0, len(texts), batch_size):
             end = start + batch_size
             try:
-                self.chroma.add_texts(
-                    texts=texts[start:end],
+                self._collection.add(
+                    documents=texts[start:end],
                     metadatas=metadatas[start:end],
-                    ids=ids[start:end],
-                )
-            except Exception as exc:
+                    ids=ids[start:end]
                 logger.error("Batch indexing failed [%s:%s]: %s", start, end, exc, exc_info=True)
                 continue
         logger.info("Chroma indexing complete for %s assessments.", len(self.catalog_items))
@@ -350,13 +319,15 @@ class CatalogManager:
         if isinstance(value, list):
             return [str(v).strip() for v in value if str(v).strip()]
         if isinstance(value, str):
-            return [part.strip() for part in value.split(",") if part.strip()]
-        return []
-
-    def get_by_names(self, names: list[str]) -> list[dict[str, Any]]:
-        """Return full catalog rows for given exact names (case-insensitive)."""
-        results: list[dict[str, Any]] = []
-        for name in names:
+            return [part.str or not self._collection:
+            return []
+        try:
+            results = self._collection.query(
+                query_texts=[query],
+                n_results=min(n_results, len(self.catalog_items)) if self.catalog_items else n_results
+            )
+            metadatas = results.get("metadatas", [[]])[0]
+            return [self._doc_to_assessment(m) for m in metadata
             key = name.strip().lower()
             if not key:
                 continue

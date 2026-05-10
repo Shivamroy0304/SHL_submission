@@ -9,6 +9,8 @@ from typing import Any
 
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
+from langchain.schema import BaseRetriever, Document
+from langchain.callbacks.manager import CallbackManagerForRetrieverRun
 
 from catalog import CatalogManager
 from chains import (
@@ -26,6 +28,20 @@ from tools import make_catalog_tools
 logger = logging.getLogger(__name__)
 
 
+class CatalogRetriever(BaseRetriever):
+    """Custom retriever that calls catalog.search() for vector similarity."""
+    catalog: Any
+    k: int = 20
+    
+    def _get_relevant_documents(self, query: str, 
+        *, run_manager: CallbackManagerForRetrieverRun) -> list[Document]:
+        results = self.catalog.search(query, n_results=self.k)
+        return [Document(
+            page_content=r.get("description", r.get("name", "")),
+            metadata=r
+        ) for r in results]
+
+
 class SHLAgent:
     """Coordinator that routes user input to the right LangChain flow."""
 
@@ -33,11 +49,7 @@ class SHLAgent:
         """Build all reusable chains, retriever, and tools once at startup."""
         self.catalog = catalog_manager
         self.llm = build_llm()
-        self.retriever = (
-            catalog_manager.chroma.as_retriever(search_kwargs={"k": 20})
-            if catalog_manager.chroma is not None
-            else None
-        )
+        self.retriever = CatalogRetriever(catalog=catalog_manager, k=20)
         self.intent_chain = build_intent_chain(self.llm)
         self.clarify_chain = build_clarify_chain(self.llm)
         self.recommend_chain = (

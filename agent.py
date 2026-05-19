@@ -320,21 +320,46 @@ class SHLAgent:
         )
 
     def _handle_end(self, messages: list[Message]) -> ChatResponse:
-        """Finalize conversation with last known recommendation set."""
+        """Finalize conversation with recommendation recovery."""
+
+        # Try extracting structured recommendations first
         prior_recs = self._extract_prior_recommendations(messages)
+
+        # Fallback: regenerate recommendations from full conversation
         if not prior_recs:
-            prior_recs = self._fallback_recent_recs_from_text(messages)
+            try:
+                full_context = self._conversation_text(messages)
+
+                regenerated = self._fallback_recommendations_from_catalog(
+                    full_context
+                )
+
+                if regenerated:
+                    prior_recs = regenerated[:10]
+
+            except Exception as exc:
+                logger.error(
+                    "Recommendation regeneration failed: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+        # Still nothing -> graceful recovery
         if not prior_recs:
             return ChatResponse(
                 reply=(
-                    "Before I finalize, please confirm at least one SHL assessment "
-                    "you want in the shortlist."
+                    "I could not finalize recommendations yet. "
+                    "Please provide the role and hiring requirements again."
                 ),
                 recommendations=[],
                 end_of_conversation=False,
             )
+
         return ChatResponse(
-            reply="Great! Good luck with your hiring. Feel free to return anytime for more SHL assessment support.",
+            reply=(
+                "Great! Based on your requirements, here is the finalized "
+                "SHL assessment shortlist."
+            ),
             recommendations=prior_recs,
             end_of_conversation=True,
         )

@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain.chains import ConversationalRetrievalChain, LLMChain
 from langchain.prompts import PromptTemplate
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from prompts import (
     CLARIFY_PROMPT,
@@ -17,16 +17,18 @@ from prompts import (
 )
 
 
-def build_llm() -> ChatGroq:
-    """Create shared Groq LLM instance. Fast, free, generous limits."""
-    return ChatGroq(
-        model="llama3-70b-8192",
+def build_llm() -> ChatGoogleGenerativeAI:
+    """Create shared Gemini 2.0 Flash chat model instance."""
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",
         temperature=0.2,
-        api_key=os.getenv("GROQ_API_KEY"),
+        google_api_key=api_key,
+        convert_system_message_to_human=True,
     )
 
 
-def build_intent_chain(llm: ChatGroq) -> LLMChain:
+def build_intent_chain(llm: ChatGoogleGenerativeAI) -> LLMChain:
     """Build LLMChain for one-word intent classification."""
     return LLMChain(
         llm=llm,
@@ -38,7 +40,7 @@ def build_intent_chain(llm: ChatGroq) -> LLMChain:
     )
 
 
-def build_clarify_chain(llm: ChatGroq) -> LLMChain:
+def build_clarify_chain(llm: ChatGoogleGenerativeAI) -> LLMChain:
     """Build LLMChain that produces exactly one clarifying question."""
     return LLMChain(
         llm=llm,
@@ -51,7 +53,7 @@ def build_clarify_chain(llm: ChatGroq) -> LLMChain:
 
 
 def build_recommend_chain(
-    llm: ChatGroq, retriever: Any
+    llm: ChatGoogleGenerativeAI, retriever: Any
 ) -> ConversationalRetrievalChain:
     """Build retrieval-augmented recommendation chain."""
     recommend_template = (
@@ -72,7 +74,7 @@ def build_recommend_chain(
     )
 
 
-def build_compare_chain(llm: ChatGroq) -> LLMChain:
+def build_compare_chain(llm: ChatGoogleGenerativeAI) -> LLMChain:
     """Build compare response chain using catalog data only."""
     return LLMChain(
         llm=llm,
